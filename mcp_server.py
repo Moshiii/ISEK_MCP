@@ -495,9 +495,10 @@ async def invoke_agent(request_data: InvokeRequest, request: Request):
 
     try:
         logger.info(
-            "Invoking agent %s",
+            "Invoking agent %s with inputs: %s",
             request_data.agent_name,
-            extra={"trace_id": trace_id}
+            request_data.agent_inputs,
+            extra={"trace_id": trace_id},
         )
 
         # Get all agents to find the requested one
@@ -556,9 +557,10 @@ async def invoke_agent(request_data: InvokeRequest, request: Request):
             result = response.root.result.status.message
 
             logger.info(
-                "Successfully invoked agent %s",
+                "Successfully invoked agent %s with reply: %s",
                 request_data.agent_name,
-                extra={"trace_id": trace_id}
+                result,
+                extra={"trace_id": trace_id},
             )
 
             return InvokeResponse(result=result, trace_id=trace_id)
@@ -665,7 +667,7 @@ def serve(host, port, transport):  # noqa: PLR0915
 
             message_content = response.root.result.status.message
 
-            logger.info("Task result content: %s", message_content)
+            logger.info("Agent %s task result: %s", agent_card.name, message_content)
 
             return message_content
 

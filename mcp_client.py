@@ -95,24 +95,17 @@ async def main() -> None:
                 print("No agents available!")
                 return
 
-            # Find the best agent for the query
-            best_agent = client.find_best_agent(agents, query)
-            print(f"Selected agent: {best_agent['name']}")
+            # Invoke all agents
+            for agent in agents:
+                agent_inputs = {"query": query}
+                print(f"\nInvoking agent '{agent['name']}' with query: {query}")
+                result = await client.invoke_agent(agent['name'], agent_inputs)
 
-            # Prepare inputs for the agent
-            # For now, we'll just pass the query as a simple input
-            agent_inputs = {"query": query}
-
-            print(f"\nInvoking agent '{best_agent['name']}' with query: {query}")
-
-            # Invoke the agent
-            result = await client.invoke_agent(best_agent['name'], agent_inputs)
-
-            print("\nAgent Response:")
-            print("=" * 50)
-            print(result.get('result', 'No result returned'))
-            print("=" * 50)
-            print(f"Trace ID: {result.get('trace_id', 'N/A')}")
+                print("\nAgent Response:")
+                print("=" * 50)
+                print(result.get('result', 'No result returned'))
+                print("=" * 50)
+                print(f"Trace ID: {result.get('trace_id', 'N/A')}")
 
         except httpx.HTTPStatusError as e:
             print(f"HTTP Error: {e.response.status_code}")
