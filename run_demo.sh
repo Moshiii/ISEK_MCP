@@ -145,27 +145,20 @@ fi
 
 # Test agent invocation
 echo -e "\n${CYAN}⚡ Agent Invocation Tests${NC}"
+if [[ -n "$AGENT_NAMES" ]]; then
+  echo "$AGENT_NAMES" | while IFS= read -r agent_name; do
+    if [[ -z "$agent_name" ]]; then continue; fi
+    echo -e "\n${PURPLE}🤖 Testing Agent: $agent_name with query: \"$QUERY\"${NC}"
+    
+    # Safely create JSON payload using jq
+    json_payload=$(jq -n \
+      --arg agent_name "$agent_name" \
+      --arg query "$QUERY" \
+      '{ "agent_name": $agent_name, "agent_inputs": { "query": $query } }')
 
-# Test OpenAI agent
-echo -e "\n${PURPLE}🤖 Testing OpenAI Agent${NC}"
-make_request "POST" "$SERVER_URL/v1/invoke" '{
-  "agent_name": "OpenAI Agent",
-  "agent_inputs": {"query": "What is machine learning?"}
-}'
-
-# Test Trending agent
-echo -e "\n${PURPLE}📈 Testing Trending Agent${NC}"
-make_request "POST" "$SERVER_URL/v1/invoke" '{
-  "agent_name": "Trending Topics Agent",
-  "agent_inputs": {"query": "What are people talking about today?"}
-}'
-
-# Test Analyzer agent
-echo -e "\n${PURPLE}📊 Testing Analyzer Agent${NC}"
-make_request "POST" "$SERVER_URL/v1/invoke" '{
-  "agent_name": "Trend Analyzer Agent",
-  "agent_inputs": {"query": "Analyze the growth of AI technology"}
-}'
+    make_request "POST" "$SERVER_URL/v1/invoke" "$json_payload"
+  done
+fi
 
 # Test error handling
 echo -e "\n${CYAN}🚨 Error Handling Tests${NC}"
