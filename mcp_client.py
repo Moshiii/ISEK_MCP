@@ -54,7 +54,6 @@ async def main() -> None:
             print("\nQuery:\n", query)
 
             exec_call = await client.call_tool("execute_task", {"agent_url": agent_url, "query": query})
-
             print("\nTool Result:")
             print("\nExecution Result:\n", exec_call.data.result)
 

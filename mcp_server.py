@@ -288,10 +288,6 @@ def serve(host, port, transport):  # noqa: PLR0915
         agent_card = return_agent_card(agent_cards, query)
         agent_card = AgentCard(**agent_card)
         logger.info("[find_agent],Agent recruited for query %s -> %s", query, agent_card.name)
-        
-        
-        # print("agent_card type: ", type(agent_card))
-        # print("agent_card: ", agent_card.model_dump())
         return json.dumps(agent_card.model_dump())
        
     @mcp.tool(
@@ -323,12 +319,12 @@ def serve(host, port, transport):  # noqa: PLR0915
             response = await client.send_message(
                 SendMessageRequest(id=str(uuid4().hex), params=msg_params)
             )
+            
+            message_content = response.root.result.status.message
 
-            task_content = response.root.result.status.message.parts[0].root.text
-
-            logger.info("[execute_task] Task result content: %s", task_content)
+            logger.info("[execute_task] Task result content: %s", message_content)
         
-            return task_content
+            return message_content
 
     mcp.run(transport=transport)
 

@@ -1,0 +1,54 @@
+{
+  "id": "c7b086b6994f48cbb6a18d142922db6d",
+  "jsonrpc": "2.0",
+  "result": {
+    "contextId": "62e6d4fa-1e63-495f-bd4c-82f84d0a80db",
+    "history": [
+      {
+        "contextId": "62e6d4fa-1e63-495f-bd4c-82f84d0a80db",
+        "kind": "message",
+        "messageId": "81665c9bb41a437c9c36868755bac71b",
+        "parts": [
+          {
+            "kind": "text",
+            "text": "explain what an image-classifier agent can do?"
+          }
+        ],
+        "role": "user",
+        "taskId": "98fea77a-29ff-4ff0-8c18-edad825c4b4b"
+      },
+      {
+        "contextId": "62e6d4fa-1e63-495f-bd4c-82f84d0a80db",
+        "kind": "message",
+        "messageId": "7c6e7564-ccb7-40b2-a785-83df4702ef08",
+        "parts": [
+          {
+            "kind": "text",
+            "text": "Processing your request..."
+          }
+        ],
+        "role": "agent",
+        "taskId": "98fea77a-29ff-4ff0-8c18-edad825c4b4b"
+      }
+    ],
+    "id": "98fea77a-29ff-4ff0-8c18-edad825c4b4b",
+    "kind": "task",
+    "status": {
+      "message": {
+        "contextId": "62e6d4fa-1e63-495f-bd4c-82f84d0a80db",
+        "kind": "message",
+        "messageId": "befcb64b-fe07-48c4-baa4-a0e5e47263ad",
+        "parts": [
+          {
+            "kind": "text",
+            "text": "An image-classifier agent, often powered by artificial intelligence, can automatically identify and categorize images into predefined classes or labels. It can analyze, recognize, and classify images based on elements, objects, or features within the image. For instance, it can differentiate between images of cats and dogs, recognize faces, or distinguish between various types of vehicles. These agents are widely used in various fields such as autonomous vehicles, healthcare, security systems, and social media."
+          }
+        ],
+        "role": "agent",
+        "taskId": "98fea77a-29ff-4ff0-8c18-edad825c4b4b"
+      },
+      "state": "completed",
+      "timestamp": "2025-09-09T17:35:27.738873+00:00"
+    }
+  }
+}
