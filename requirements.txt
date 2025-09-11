@@ -23,17 +23,8 @@ uvicorn>=0.32.0
 python-dotenv>=1.0.1
 
 # Agent-to-Agent Protocol
-# TODO: Add installation instructions for a2a package
-# This appears to be a custom dependency for:
-# - a2a.server.tasks
-# - a2a.types  
-# - a2a.utils
-# - a2a.client
-# - a2a.server.apps
-# - a2a.server.request_handlers
-# - a2a.server.agent_execution
-# - a2a.server.events
-# - a2a.utils.errors
+# Official A2A Python SDK: https://github.com/a2aproject/a2a-python
+a2a-sdk[all]>=0.3.5
 
 # Development and Testing (optional - uncomment if needed)
 # pytest>=8.0.0

@@ -31,11 +31,7 @@ source venv/bin/activate  # On macOS/Linux
 pip install -r requirements.txt
 ```
 
-**Note:** The `a2a` (Agent-to-Agent) package appears to be a custom dependency. You may need to:
-
-- Install it from a private repository
-- Build it from source
-- Contact your team for installation instructions
+**Note:** The project uses the official [A2A Python SDK](https://github.com/a2aproject/a2a-python) for Agent-to-Agent protocol implementation. The `a2a-sdk[all]` package includes all necessary features including HTTP server, gRPC, telemetry, and database drivers.
 
 ### 3. Environment Variables
 
@@ -94,7 +90,7 @@ python mcp_client.py "Analyze the current AI trends"
 
 The system uses:
 
-- **A2A Protocol**: Custom Agent-to-Agent communication protocol
+- **A2A Protocol**: Agent-to-Agent communication protocol using the official [A2A Python SDK](https://github.com/a2aproject/a2a-python)
 - **MCP**: Model Context Protocol for client-server communication
 - **FastMCP**: Framework for building MCP servers
 - **Pydantic AI**: Framework for building AI agents
@@ -103,7 +99,7 @@ The system uses:
 
 ## Troubleshooting
 
-1. **Missing `a2a` package**: This is likely a custom package - check with your team for installation
-2. **OpenAI API errors**: Ensure your `OPENAI_API_KEY` is set in the `.env` file
-3. **Port conflicts**: Agents run on ports 9999, 10020, 10021, and MCP server on 8080
-4. **Agent startup**: Wait for agents to fully start (5+ seconds) before querying
+1. **OpenAI API errors**: Ensure your `OPENAI_API_KEY` is set in the `.env` file
+2. **Port conflicts**: Agents run on ports 9999, 10020, 10021, and MCP server on 8080
+3. **Agent startup**: Wait for agents to fully start (5+ seconds) before querying
+4. **A2A SDK issues**: The project uses the official [A2A Python SDK](https://github.com/a2aproject/a2a-python) - ensure all dependencies are installed with `pip install -r requirements.txt`
