@@ -15,6 +15,12 @@ openai>=1.54.3
 # MCP (Model Context Protocol) Dependencies
 fastmcp>=0.2.0
 
+# REST API Dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.0.0
+jsonschema>=4.17.0
+
 # HTTP and Async Dependencies
 httpx>=0.28.0
 uvicorn>=0.32.0
