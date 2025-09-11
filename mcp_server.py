@@ -1,8 +1,18 @@
 import json
-from pathlib import Path
-from openai import OpenAI
 import asyncio
 import httpx
+import jsonschema
+from typing import Dict, List, Optional, Any
+from uuid import uuid4
+from datetime import datetime
+import time
+
+from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field, ValidationError
+import uvicorn
+
 from a2a.client import A2AClient
 from a2a.types import (
     AgentCard,
@@ -24,21 +34,113 @@ from a2a.types import (
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.utilities.logging import get_logger
-from uuid import uuid4
 
 import dotenv
 dotenv.load_dotenv()
 
-client = OpenAI()
-
 logger = get_logger(__name__)
-AGENT_CARDS_DIR = 'agent_cards'
-MODEL = 'text-embedding-ada-002'
-agent_urls = ['http://localhost:9999', # openai agent
-              'http://localhost:10020', # trending agent
-              'http://localhost:10021' # analyzer agent
-            ]
-AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent.json"
+
+# Configuration
+AGENT_URLS = [
+    'http://localhost:9999',   # openai agent
+    'http://localhost:10020',  # trending agent
+    'http://localhost:10021'   # analyzer agent
+]
+AGENT_CARD_WELL_KNOWN_PATH = "/.well-known/agent-card.json"
+REQUEST_TIMEOUT = 30.0  # seconds
+
+# Initialize FastAPI app
+app = FastAPI(
+    title="ISEK MCP Server",
+    description="Model Context Protocol Server with Agent-to-Agent capabilities",
+    version="1.0.0",
+    docs_url="/docs",
+    openapi_url="/openapi.json"
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Configure appropriately for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Pydantic Models
+class ErrorResponse(BaseModel):
+    error: Dict[str, Any] = Field(..., description="Error details")
+    trace_id: str = Field(..., description="Request trace identifier")
+
+class HealthResponse(BaseModel):
+    status: str = Field(..., description="Health status")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Response timestamp")
+
+class AgentMetadata(BaseModel):
+    name: str = Field(..., description="Unique agent identifier")
+    description: str = Field(..., description="Agent description")
+    version: str = Field(default="1.0", description="Agent version")
+    tags: List[str] = Field(default_factory=list, description="Agent tags")
+    capabilities: Dict[str, Any] = Field(default_factory=dict, description="Agent capabilities")
+    url: str = Field(..., description="Agent base URL")
+    input_schema: Dict[str, Any] = Field(..., description="JSON Schema for agent inputs")
+    output_schema: Optional[Dict[str, Any]] = Field(None, description="JSON Schema for agent outputs")
+
+class InvokeRequest(BaseModel):
+    agent_name: str = Field(..., description="Name of the agent to invoke")
+    agent_inputs: Dict[str, Any] = Field(..., description="Inputs for the agent")
+
+class InvokeResponse(BaseModel):
+    result: Any = Field(..., description="Agent execution result")
+    trace_id: str = Field(..., description="Request trace identifier")
+
+# Utility functions
+def generate_trace_id() -> str:
+    """Generate a unique trace identifier."""
+    return str(uuid4())
+
+def validate_json_schema(data: Dict[str, Any], schema: Dict[str, Any]) -> bool:
+    """Validate data against JSON schema."""
+    try:
+        jsonschema.validate(instance=data, schema=schema)
+        return True
+    except jsonschema.ValidationError:
+        return False
+
+def create_error_response(code: str, message: str, trace_id: str, details: Optional[Dict] = None) -> ErrorResponse:
+    """Create standardized error response."""
+    error = {
+        "code": code,
+        "message": message,
+    }
+    if details:
+        error["details"] = details
+
+    return ErrorResponse(error=error, trace_id=trace_id)
+
+# Request correlation middleware
+@app.middleware("http")
+async def add_request_correlation(request: Request, call_next):
+    """Add request correlation and timing to all requests."""
+    start_time = time.time()
+
+    # Get or generate trace_id
+    trace_id = request.headers.get("x-request-id") or request.headers.get("traceparent") or generate_trace_id()
+
+    # Add trace_id to request state
+    request.state.trace_id = trace_id
+
+    # Add trace_id to response headers
+    response = await call_next(request)
+
+    response.headers["x-request-id"] = trace_id
+    response.headers["x-trace-id"] = trace_id
+
+    # Add timing
+    process_time = time.time() - start_time
+    response.headers["x-process-time"] = str(process_time)
+
+    return response
 
 from collections import Counter
 import math
@@ -202,55 +304,297 @@ async def send_message_to_an_agent(
             task_completed,
         )
                         
-async def get_agents() -> list[dict]:
-        """Fetch and cache agent cards from all configured agent URLs.
+async def get_agents() -> List[Dict[str, Any]]:
+    """Fetch agent cards from all configured agent URLs.
 
-        The function uses a simple in-memory cache (``_agent_info_cache``) to avoid
-        fetching the ­same agent card repeatedly.  If a card is not cached, it is
-        retrieved from the agent’s “well-known” endpoint and stored in the cache.
+    Returns:
+        List[Dict]: List of agent card dictionaries.
+    """
+    timeout_config = httpx.Timeout(REQUEST_TIMEOUT)
+    fetched_cards: List[Dict[str, Any]] = []
 
-        Returns:
-            list[dict]: A list of ``AgentCard`` dictionaries – fully JSON-serialisable
-            objects for interoperability with the rest of the MCP pipeline.
-        """
+    logger.info("Fetching agent cards from configured agent URLs...")
 
-        timeout_config = httpx.Timeout(10.0)  # seconds
-        fetched_cards: list[dict] = []
-
-        logger.info("[get_agents],Fetching agent cards from configured agent URLs …")
-
-        async with httpx.AsyncClient(timeout=timeout_config) as httpx_client:
-            for agent_url in agent_urls:
-                logger.debug("[get_agents],Fetching agent card for %s", agent_url)
+    async with httpx.AsyncClient(timeout=timeout_config) as httpx_client:
+        for agent_url in AGENT_URLS:
+            try:
+                logger.debug("Fetching agent card for %s", agent_url)
                 response = await httpx_client.get(f"{agent_url}{AGENT_CARD_WELL_KNOWN_PATH}")
                 response.raise_for_status()
                 card_data = response.json()
                 fetched_cards.append(card_data)
+                logger.debug("Successfully fetched agent card for %s", agent_url)
+            except Exception as e:
+                logger.warning("Failed to fetch agent card for %s: %s", agent_url, str(e))
+                continue
 
-        logger.info("[get_agents],Successfully retrieved %d agent cards", len(fetched_cards))
-        return fetched_cards
-        
-async def get_agent_card_by_url(agent_url: str) -> dict:
-    """Fetch and cache agent cards from all configured agent URLs.
+    logger.info("Successfully retrieved %d agent cards", len(fetched_cards))
+    return fetched_cards
 
-    The function uses a simple in-memory cache (``_agent_info_cache``) to avoid
-    fetching the ­same agent card repeatedly.  If a card is not cached, it is
-    retrieved from the agent’s “well-known” endpoint and stored in the cache.
-    
+async def get_agent_card_by_url(agent_url: str) -> Dict[str, Any]:
+    """Fetch agent card from a specific URL.
+
     Args:
         agent_url: The URL of the agent to fetch the agent card from.
 
     Returns:
-        dict: ``AgentCard`` fully JSON-serialisable object for interoperability with the rest of the MCP pipeline.
+        Dict: Agent card data.
     """
-    timeout_config = httpx.Timeout(10.0)  # seconds
-    logger.debug("[get_agent_card_by_url],Fetching agent card for %s", agent_url)
+    timeout_config = httpx.Timeout(REQUEST_TIMEOUT)
+    logger.debug("Fetching agent card for %s", agent_url)
     async with httpx.AsyncClient(timeout=timeout_config) as httpx_client:
         response = await httpx_client.get(f"{agent_url}{AGENT_CARD_WELL_KNOWN_PATH}")
         response.raise_for_status()
         card_data = response.json()
         return card_data
 
+def transform_agent_card_to_metadata(card_data: Dict[str, Any]) -> AgentMetadata:
+    """Transform agent card data into AgentMetadata model."""
+    # Extract tags from skills if available
+    tags = []
+    if "skills" in card_data:
+        for skill in card_data["skills"]:
+            if "tags" in skill:
+                tags.extend(skill["tags"])
+
+    # Determine capabilities
+    capabilities = {
+        "streaming": card_data.get("capabilities", {}).get("streaming", False),
+        "tools": card_data.get("capabilities", {}).get("tools", False),
+        "task_execution": True  # Assume all agents can execute tasks
+    }
+
+    # Create input schema from skills if not present
+    input_schema = card_data.get("input_schema", {})
+    if not input_schema and "skills" in card_data:
+        # Generate schema from first skill
+        skill = card_data["skills"][0]
+        input_schema = {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": f"Query for {skill.get('name', 'agent')}"
+                }
+            },
+            "required": ["query"]
+        }
+
+    return AgentMetadata(
+        name=card_data.get("name", "unknown"),
+        description=card_data.get("description", ""),
+        version=card_data.get("version", "1.0"),
+        tags=tags,
+        capabilities=capabilities,
+        url=card_data.get("url", ""),
+        input_schema=input_schema,
+        output_schema=card_data.get("output_schema")
+    )
+
+# REST API Endpoints
+
+@app.get("/v1/health", response_model=HealthResponse)
+async def health_check():
+    """Health check endpoint."""
+    return HealthResponse(status="ok")
+
+@app.get("/v1/ready", response_model=HealthResponse)
+async def readiness_check():
+    """Readiness check endpoint - checks if agents are reachable."""
+    try:
+        # Quick check if we can reach at least one agent
+        agent_cards = await get_agents()
+        if len(agent_cards) == 0:
+            raise HTTPException(status_code=503, detail="No agents available")
+
+        return HealthResponse(status="ok")
+    except Exception as e:
+        logger.error("Readiness check failed: %s", str(e))
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+@app.get("/v1/agents", response_model=List[AgentMetadata])
+async def list_agents(request: Request):
+    """List all available agents with their metadata."""
+    try:
+        trace_id = getattr(request.state, 'trace_id', generate_trace_id())
+        logger.info("Listing agents", extra={"trace_id": trace_id})
+
+        agent_cards = await get_agents()
+
+        if not agent_cards:
+            raise HTTPException(
+                status_code=503,
+                detail="No agents available"
+            )
+
+        agents = []
+        for card_data in agent_cards:
+            try:
+                agent_metadata = transform_agent_card_to_metadata(card_data)
+                agents.append(agent_metadata)
+            except Exception as e:
+                logger.warning("Failed to transform agent card: %s", str(e))
+                continue
+
+        logger.info("Successfully returned %d agents", len(agents), extra={"trace_id": trace_id})
+        return agents
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        trace_id = getattr(request.state, 'trace_id', generate_trace_id())
+        logger.error("Error listing agents: %s", str(e), extra={"trace_id": trace_id})
+        error_response = create_error_response(
+            "EXECUTION_ERROR",
+            "Failed to list agents",
+            trace_id,
+            {"error": str(e)}
+        )
+        raise HTTPException(status_code=500, detail=error_response.model_dump())
+
+@app.get("/v1/agents/{name}", response_model=AgentMetadata)
+async def get_agent(name: str, request: Request):
+    """Get metadata for a specific agent."""
+    try:
+        trace_id = getattr(request.state, 'trace_id', generate_trace_id())
+        logger.info("Getting agent metadata for %s", name, extra={"trace_id": trace_id})
+
+        agent_cards = await get_agents()
+
+        for card_data in agent_cards:
+            if card_data.get("name") == name:
+                agent_metadata = transform_agent_card_to_metadata(card_data)
+                logger.info("Successfully returned agent %s", name, extra={"trace_id": trace_id})
+                return agent_metadata
+
+        # Agent not found
+        error_response = create_error_response(
+            "AGENT_NOT_FOUND",
+            f"Agent '{name}' not found",
+            trace_id
+        )
+        raise HTTPException(status_code=404, detail=error_response.model_dump())
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        trace_id = getattr(request.state, 'trace_id', generate_trace_id())
+        logger.error("Error getting agent %s: %s", name, str(e), extra={"trace_id": trace_id})
+        error_response = create_error_response(
+            "EXECUTION_ERROR",
+            f"Failed to get agent {name}",
+            trace_id,
+            {"error": str(e)}
+        )
+        raise HTTPException(status_code=500, detail=error_response.model_dump())
+
+@app.post("/v1/invoke", response_model=InvokeResponse)
+async def invoke_agent(request_data: InvokeRequest, request: Request):
+    """Invoke an agent with the provided inputs."""
+    trace_id = getattr(request.state, 'trace_id', generate_trace_id())
+
+    try:
+        logger.info(
+            "Invoking agent %s",
+            request_data.agent_name,
+            extra={"trace_id": trace_id}
+        )
+
+        # Get all agents to find the requested one
+        agent_cards = await get_agents()
+
+        # Find the requested agent
+        agent_card_data = None
+        for card in agent_cards:
+            if card.get("name") == request_data.agent_name:
+                agent_card_data = card
+                break
+
+        if not agent_card_data:
+            error_response = create_error_response(
+                "AGENT_NOT_FOUND",
+                f"Agent '{request_data.agent_name}' not found",
+                trace_id
+            )
+            raise HTTPException(status_code=404, detail=error_response.model_dump())
+
+        # Transform to AgentMetadata to get input schema
+        agent_metadata = transform_agent_card_to_metadata(agent_card_data)
+
+        # Validate inputs against schema
+        if not validate_json_schema(request_data.agent_inputs, agent_metadata.input_schema):
+            error_response = create_error_response(
+                "VALIDATION_FAILED",
+                "Input validation failed",
+                trace_id,
+                {"schema": agent_metadata.input_schema}
+            )
+            raise HTTPException(status_code=400, detail=error_response.model_dump())
+
+        # Create A2A client and invoke agent
+        timeout_config = httpx.Timeout(REQUEST_TIMEOUT)
+        async with httpx.AsyncClient(timeout=timeout_config) as httpx_client:
+            agent_card = AgentCard(**agent_card_data)
+            client = A2AClient(httpx_client, agent_card=agent_card)
+
+            # Prepare the message
+            query_text = json.dumps(request_data.agent_inputs) if isinstance(request_data.agent_inputs, dict) else str(request_data.agent_inputs)
+
+            msg_params = MessageSendParams(
+                message=Message(
+                    role=Role.user,
+                    parts=[Part(TextPart(text=query_text))],
+                    message_id=uuid4().hex,
+                )
+            )
+
+            # Send the request
+            response = await client.send_message(
+                SendMessageRequest(id=str(uuid4().hex), params=msg_params)
+            )
+
+            result = response.root.result.status.message
+
+            logger.info(
+                "Successfully invoked agent %s",
+                request_data.agent_name,
+                extra={"trace_id": trace_id}
+            )
+
+            return InvokeResponse(result=result, trace_id=trace_id)
+
+    except HTTPException:
+        raise
+    except ValidationError as e:
+        logger.warning(
+            "Validation error for agent %s: %s",
+            request_data.agent_name,
+            str(e),
+            extra={"trace_id": trace_id}
+        )
+        error_response = create_error_response(
+            "VALIDATION_FAILED",
+            "Request validation failed",
+            trace_id,
+            {"errors": e.errors()}
+        )
+        raise HTTPException(status_code=400, detail=error_response.model_dump())
+    except Exception as e:
+        logger.error(
+            "Error invoking agent %s: %s",
+            request_data.agent_name,
+            str(e),
+            extra={"trace_id": trace_id}
+        )
+        error_response = create_error_response(
+            "EXECUTION_ERROR",
+            f"Failed to invoke agent {request_data.agent_name}",
+            trace_id,
+            {"error": str(e)}
+        )
+        raise HTTPException(status_code=500, detail=error_response.model_dump())
+
+# Legacy MCP Tools (for backward compatibility)
 def serve(host, port, transport):  # noqa: PLR0915
     """Initializes and runs the Agent Cards MCP server.
 
@@ -262,9 +606,8 @@ def serve(host, port, transport):  # noqa: PLR0915
     Raises:
         ValueError: If the 'GOOGLE_API_KEY' environment variable is not set.
     """
-    logger.info('[serve],Starting Agent Cards MCP Server')
+    logger.info('Starting Agent Cards MCP Server')
     mcp = FastMCP('agent-cards', host=host, port=port)
-    
 
     @mcp.tool(
         name='find_agent',
@@ -272,7 +615,7 @@ def serve(host, port, transport):  # noqa: PLR0915
     )
     async def find_agent(query: str) -> str:
         """Recruits an agent to execute a task.
-        
+
         Args:
             query: The natural language query string used to search for a
                    relevant agent.
@@ -281,15 +624,15 @@ def serve(host, port, transport):  # noqa: PLR0915
             The json representing the agent card deemed most relevant
             to the input query based on embedding similarity.
         """
-        logger.debug("[find_agent],Recruiting agent for query: %s", query)
+        logger.debug("Recruiting agent for query: %s", query)
         # Fetch agent cards asynchronously within the current event loop
         agent_cards = await get_agents()
-        logger.debug("[find_agent],Candidate agent cards fetched: %s", agent_cards)
+        logger.debug("Candidate agent cards fetched: %s", agent_cards)
         agent_card = return_agent_card(agent_cards, query)
         agent_card = AgentCard(**agent_card)
-        logger.info("[find_agent],Agent recruited for query %s -> %s", query, agent_card.name)
+        logger.info("Agent recruited for query %s -> %s", query, agent_card.name)
         return json.dumps(agent_card.model_dump())
-       
+
     @mcp.tool(
         name='execute_task',
         description='Executes a task on a remote agent using the A2A protocol.',
@@ -301,7 +644,7 @@ def serve(host, port, transport):  # noqa: PLR0915
         agent_card_data = await get_agent_card_by_url(agent_url)
         agent_card = AgentCard(**agent_card_data)
 
-        logger.info("[execute_task],Executing task on agent %s with query: %s", agent_card.name, query)
+        logger.info("Executing task on agent %s with query: %s", agent_card.name, query)
 
         # Build request params
         msg_params = MessageSendParams(
@@ -312,18 +655,18 @@ def serve(host, port, transport):  # noqa: PLR0915
             )
         )
 
-        logger.debug("[execute_task] Sending non-streaming request …")
-        timeout_config = httpx.Timeout(10.0)
+        logger.debug("Sending non-streaming request …")
+        timeout_config = httpx.Timeout(REQUEST_TIMEOUT)
         async with httpx.AsyncClient(timeout=timeout_config) as httpx_client:
             client = A2AClient(httpx_client, agent_card=agent_card)
             response = await client.send_message(
                 SendMessageRequest(id=str(uuid4().hex), params=msg_params)
             )
-            
+
             message_content = response.root.result.status.message
 
-            logger.info("[execute_task] Task result content: %s", message_content)
-        
+            logger.info("Task result content: %s", message_content)
+
             return message_content
 
     mcp.run(transport=transport)
@@ -334,15 +677,15 @@ def serve(host, port, transport):  # noqa: PLR0915
 # -------------------------------
 
 def main() -> None:
-    """Entry point for running the Agent Cards MCP server from the command line.
+    """Entry point for running the ISEK MCP server from the command line.
 
     Example:
-        python -m mcp_server.mcp_server --host 0.0.0.0 --port 8000 --transport sse
+        python mcp_server.py --host 0.0.0.0 --port 8080
     """
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Run the Agent Cards MCP server"
+        description="Run the ISEK MCP server with REST API and MCP tools"
     )
     parser.add_argument(
         "--host", default="127.0.0.1", help="Hostname or IP address to bind."
@@ -354,16 +697,34 @@ def main() -> None:
         help="Port number to bind the server to.",
     )
     parser.add_argument(
+        "--mode",
+        default="rest",
+        choices=["rest", "mcp"],
+        help="Server mode: 'rest' for REST API, 'mcp' for MCP tools only.",
+    )
+    parser.add_argument(
         "--transport",
         default="sse",
         choices=["stdio", "sse"],
-        help="Transport mechanism to use (stdio or sse).",
+        help="Transport mechanism for MCP mode (ignored in REST mode).",
     )
 
     args = parser.parse_args()
 
-    # Run the server
-    serve(args.host, args.port, args.transport)
+    if args.mode == "mcp":
+        # Run legacy MCP server for backward compatibility
+        logger.info("Starting MCP server in legacy mode")
+        serve(args.host, args.port, args.transport)
+    else:
+        # Run FastAPI REST server
+        logger.info("Starting REST API server on %s:%d", args.host, args.port)
+        uvicorn.run(
+            "mcp_server:app",
+            host=args.host,
+            port=args.port,
+            log_level="info",
+            reload=True
+        )
 
 
 if __name__ == "__main__":
