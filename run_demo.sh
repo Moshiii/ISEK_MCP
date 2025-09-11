@@ -10,7 +10,8 @@
 
 set -euo pipefail
 
-QUERY=${1:-"explain what an image-classifier agent can do?"}
+# QUERY=${1:-"explain what an image-classifier agent can do?"}
+QUERY=${1:-"show me the trending topic for last week"}
 
 # Helper to start a command in the background and log its output.
 start_bg() {
@@ -34,6 +35,12 @@ PIDS+=( "$(start_bg "python openai_agent.py" "openai_agent.log")" )
 PIDS+=( "$(start_bg "python trending_agent.py" "trending_agent.log")" )
 PIDS+=( "$(start_bg "python analyzer_agent.py" "analyzer_agent.log")" )
 # PIDS+=( "$(start_bg "python mcp_server.py" "mcp_server.log")" )
+
+# run this command: 
+# python mcp_server.py --host 127.0.0.1 --port 8080 --transport sse
+
+# PIDS+=( "$(start_bg "python mcp_server.py --host 127.0.0.1 --port 8080 --transport sse" "mcp_server.log")" )
+
 echo "Waiting 5 seconds for agents to start …"
 sleep 5
 
