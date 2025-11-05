@@ -117,6 +117,15 @@ def log_system_event(event: str, details: str = ""):
     print(f"{Colors.HEADER}[SYSTEM]{Colors.ENDC} {caller_info} | {Colors.BOLD}{event}{Colors.ENDC}{details_info}")
 
 
+# Date context helper for system prompts
+def get_current_date_context() -> str:
+    """Get current date and time context for agent system prompts."""
+    from datetime import datetime, timezone
+    current_time = datetime.now(timezone.utc)
+    formatted_date = current_time.strftime("%Y-%m-%dT%H:%M:%SZ")
+    human_readable = current_time.strftime("%A, %B %d, %Y at %H:%M UTC")
+    return f"Current date and time: {formatted_date} ({human_readable})"
+
 # Define tools for the agents
 def google_search(query: str) -> str:
     """Search the web for current information."""

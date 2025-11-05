@@ -17,6 +17,7 @@ from common import (
     log_agent_response,
     log_error,
     log_system_event,
+    get_current_date_context,
 )
 
 import dotenv
@@ -25,32 +26,38 @@ dotenv.load_dotenv()
 class TrendingAgent:
     """Agent for finding trending topics using Pydantic AI."""
 
-    SYSTEM_INSTRUCTION = """
-    You are a social media trends analyst. Your job is to search the web for current trending topics,
-    particularly from social platforms.
+    @staticmethod
+    def get_system_instruction() -> str:
+        """Generate system instruction with current date context."""
+        date_context = get_current_date_context()
+        return f"""{date_context}
 
-    When asked about trends:
-    1. Search for "trending topics today" or similar queries
-    2. Extract the top 3 trending topics
-    3. Return them in a JSON format
+You are a social media trends analyst. Your job is to search the web for current trending topics,
+particularly from social platforms.
 
-    Focus on current, real-time trends from the last 24 hours.
+When asked about trends:
+1. Search for "trending topics today" or similar queries
+2. Extract the top 3 trending topics
+3. Return them in a JSON format
 
-    You MUST return your response in the following JSON format:
-    {
-        "trends": [
-            {"topic": "Topic name", "description": "Brief description (1-2 sentences)", "reason": "Why it's trending"},
-            {"topic": "Topic name", "description": "Brief description (1-2 sentences)", "reason": "Why it's trending"},
-            {"topic": "Topic name", "description": "Brief description (1-2 sentences)", "reason": "Why it's trending"}
-        ]
-    }
+Focus on current, real-time trends from the last 24 hours.
 
-    Only return the JSON object, no additional text.
-    """
+You MUST return your response in the following JSON format:
+{{
+    "trends": [
+        {{"topic": "Topic name", "description": "Brief description (1-2 sentences)", "reason": "Why it's trending"}},
+        {{"topic": "Topic name", "description": "Brief description (1-2 sentences)", "reason": "Why it's trending"}},
+        {{"topic": "Topic name", "description": "Brief description (1-2 sentences)", "reason": "Why it's trending"}}
+    ]
+}}
+
+Only return the JSON object, no additional text.
+"""
 
     def __init__(self):
-        self.agent = Agent(model="gpt-4", tools=[google_search], system_prompt=self.SYSTEM_INSTRUCTION)
-        log_agent_activity("Trending Agent", "Initialized with GPT-4 model")
+        system_prompt = self.get_system_instruction()
+        self.agent = Agent(model="gpt-4", tools=[google_search], system_prompt=system_prompt)
+        log_agent_activity("Trending Agent", "Initialized with GPT-4 model and current date context")
 
     async def stream(self, query: str, context_id: str) -> AsyncGenerator[dict[str, Any], None]:
         """Stream the agent response."""

@@ -8,28 +8,38 @@ from a2a.server.tasks import TaskUpdater
 from a2a.types import TaskState, AgentCard, AgentCapabilities, AgentSkill
 from a2a.utils import new_agent_text_message, new_task
 from common import (
-    create_agent_a2a_server, 
+    create_agent_a2a_server,
     run_server,
     log_agent_start,
     log_agent_activity,
     log_agent_request,
     log_agent_response,
     log_error,
-    log_system_event
+    log_system_event,
+    get_current_date_context
 )
 
 dotenv.load_dotenv()
 
 class OpenAIAgent:
     """Simple OpenAI wrapper agent."""
-    
+
+    @staticmethod
+    def get_system_prompt() -> str:
+        """Generate system prompt with current date context."""
+        date_context = get_current_date_context()
+        return f"""{date_context}
+
+You are a helpful AI assistant that provides clear and concise responses."""
+
     def __init__(self):
         """Initialize the OpenAI agent with a basic configuration."""
+        system_prompt = self.get_system_prompt()
         self.agent = Agent(
             model="gpt-4",
-            system_prompt="You are a helpful AI assistant that provides clear and concise responses."
+            system_prompt=system_prompt
         )
-        log_agent_activity("OpenAI Agent", "Initialized with GPT-4 model")
+        log_agent_activity("OpenAI Agent", "Initialized with GPT-4 model and current date context")
 
     async def stream(self, query: str, context_id: str) -> AsyncGenerator[dict[str, Any], None]:
         """Stream the agent response."""

@@ -17,6 +17,7 @@ from common import (
     log_agent_response,
     log_error,
     log_system_event,
+    get_current_date_context,
 )
 
 import dotenv
@@ -26,27 +27,33 @@ dotenv.load_dotenv()
 class AnalyzerAgent:
     """Agent for analyzing trends using Pydantic AI."""
 
-    SYSTEM_INSTRUCTION = """
-    You are a data analyst specializing in trend analysis. When given a trending topic,
-    perform deep research to find quantitative data and insights.
+    @staticmethod
+    def get_system_instruction() -> str:
+        """Generate system instruction with current date context."""
+        date_context = get_current_date_context()
+        return f"""{date_context}
 
-    For each trend you analyze:
-    1. Search for statistics, numbers, and metrics related to the trend
-    2. Look for:
-       - Engagement metrics (views, shares, mentions)
-       - Growth rates and timeline
-       - Geographic distribution
-       - Related hashtags or keywords
-    3. Provide concrete numbers and data points
+You are a data analyst specializing in trend analysis. When given a trending topic,
+perform deep research to find quantitative data and insights.
 
-    Keep it somehow concise
+For each trend you analyze:
+1. Search for statistics, numbers, and metrics related to the trend
+2. Look for:
+   - Engagement metrics (views, shares, mentions)
+   - Growth rates and timeline
+   - Geographic distribution
+   - Related hashtags or keywords
+3. Provide concrete numbers and data points
 
-    Always prioritize quantitative information over qualitative descriptions.
-    """
+Keep it somehow concise
+
+Always prioritize quantitative information over qualitative descriptions.
+"""
 
     def __init__(self):
-        self.agent = Agent(model="gpt-4", tools=[google_search], system_prompt=self.SYSTEM_INSTRUCTION)
-        log_agent_activity("Analyzer Agent", "Initialized with GPT-4 model")
+        system_prompt = self.get_system_instruction()
+        self.agent = Agent(model="gpt-4", tools=[google_search], system_prompt=system_prompt)
+        log_agent_activity("Analyzer Agent", "Initialized with GPT-4 model and current date context")
 
     async def stream(self, query: str, context_id: str) -> AsyncGenerator[dict[str, Any], None]:
         """Stream the agent response."""
